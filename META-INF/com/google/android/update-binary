@@ -60,22 +60,22 @@ if [ ! -f "$MODPATH/module.prop" ]; then
     exit 1
 fi
 
-# Check for post-fs-data.sh
-if [ ! -f "$MODPATH/post-fs-data.sh" ]; then
-    ui_print "⚠ post-fs-data.sh not found in ZIP"
+# Check for service.sh
+if [ ! -f "$MODPATH/service.sh" ]; then
+    ui_print "⚠ service.sh not found in ZIP"
     ui_print "  Module will be installed but may not work"
 else
-    ui_print "✓ post-fs-data.sh extracted"
+    ui_print "✓ service.sh extracted"
 fi
 
 # Set proper permissions using Magisk functions
 ui_print "- Setting permissions..."
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 
-# Make post-fs-data.sh executable if it exists
-if [ -f "$MODPATH/post-fs-data.sh" ]; then
-    set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
-    ui_print "✓ post-fs-data.sh permissions set"
+# Make service.sh executable if it exists
+if [ -f "$MODPATH/service.sh" ]; then
+    set_perm "$MODPATH/service.sh" 0 0 0755
+    ui_print "✓ service.sh permissions set"
 fi
 
 # Read module info

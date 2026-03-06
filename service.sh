@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Magisk CA Installer - post-fs-data.sh
+# Magisk CA Installer - service.sh
 # Runs after boot to install user CA certificates into system trust store
 
 MODPATH=${0%/*}
