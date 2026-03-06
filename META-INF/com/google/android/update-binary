@@ -1,8 +1,10 @@
 #!/sbin/sh
 
 # Magisk Module Installer - update-binary
-# For Magisk CA Installer by Mr.Kernel
+# Magisk CA Installer by Mr.Kernel
+# Fixed version with proper Magisk variables
 
+# Basic setup
 OUTFD=$2
 ZIPFILE=$3
 
@@ -11,16 +13,13 @@ ui_print() {
   echo "$1"
 }
 
-# Mount data if needed
-mount /data >/dev/null 2>&1
-
-# Load Magisk's internal helper functions
+# Load Magisk functions
 if [ -f /data/adb/magisk/util_functions.sh ]; then
   # For Magisk v20.4+
   . /data/adb/magisk/util_functions.sh
   ui_print "✓ Magisk functions loaded"
 elif [ -f /sbin/.magisk/util_functions.sh ]; then
-  # For older Magisk versions
+  # For older Magisk
   . /sbin/.magisk/util_functions.sh
   ui_print "✓ Magisk functions loaded (legacy)"
 else
@@ -36,52 +35,68 @@ ui_print "        by Mr.Kernel"
 ui_print "********************************"
 ui_print ""
 
-# Create module directory (MODDIR is set by util_functions.sh)
-MODPATH=$MODDIR
-mkdir -p "$MODPATH"
+# IMPORTANT: Do NOT set MODPATH manually!
+# Magisk automatically sets MODPATH based on module.prop ID
+# It will be something like: /data/adb/modules/magisk_ca_installer
 
-# Extract module files using Magisk's internal tools
-ui_print "- Extracting module files..."
-ui_print "  Extracting module.prop..."
-extract "$ZIPFILE" "module.prop" "$MODPATH"
+ui_print "- Installing module files..."
 
-ui_print "  Extracting service.sh..."
-extract "$ZIPFILE" "service.sh" "$MODPATH"
+# Extract all files EXCEPT META-INF to the module directory
+# Using Magisk's built-in extraction function
+unzip -o "$ZIPFILE" -x "META-INF/*" -d "$MODPATH" 2>/dev/null
 
-# Verify extraction
+# Check if extraction was successful
 if [ ! -f "$MODPATH/module.prop" ]; then
     ui_print "✗ Failed to extract module.prop!"
     ui_print "✗ ZIP structure may be incorrect"
+    ui_print ""
+    ui_print "Debug info:"
+    ui_print "  MODPATH: $MODPATH"
+    ui_print "  ZIPFILE: $ZIPFILE"
+    ui_print ""
+    ui_print "Please ensure:"
+    ui_print "1. module.prop is at ZIP root"
+    ui_print "2. You zipped CONTENTS, not folder"
     exit 1
 fi
 
+# Check for service.sh
 if [ ! -f "$MODPATH/service.sh" ]; then
     ui_print "⚠ service.sh not found in ZIP"
     ui_print "  Module will be installed but may not work"
+else
+    ui_print "✓ service.sh extracted"
 fi
 
-# Set permissions
+# Set proper permissions using Magisk functions
 ui_print "- Setting permissions..."
 set_perm_recursive "$MODPATH" 0 0 0755 0644
+
+# Make service.sh executable if it exists
 if [ -f "$MODPATH/service.sh" ]; then
     set_perm "$MODPATH/service.sh" 0 0 0755
-    ui_print "  ✓ service.sh permissions set"
+    ui_print "✓ service.sh permissions set"
 fi
 
-# Read module info for display
-MODNAME=$(grep_prop name "$MODPATH/module.prop")
-MODVER=$(grep_prop version "$MODPATH/module.prop")
+# Read module info
+MODNAME=$(grep_prop name "$MODPATH/module.prop" 2>/dev/null || echo "Magisk CA Installer")
+MODVER=$(grep_prop version "$MODPATH/module.prop" 2>/dev/null || echo "v1.0")
 
+# Success message
 ui_print ""
 ui_print "********************************"
 ui_print "   Installation Complete!"
 ui_print "********************************"
-ui_print "  Module: $MODNAME"
+ui_print "  Module : $MODNAME"
 ui_print "  Version: $MODVER"
+ui_print "  Author : Mr.Kernel"
 ui_print "********************************"
 ui_print ""
 ui_print "  Certificates will be installed"
 ui_print "  on next boot automatically"
+ui_print "********************************"
+ui_print ""
+ui_print "  Log file: /data/local/tmp/magisk_cert_install.log"
 ui_print "********************************"
 
 exit 0
