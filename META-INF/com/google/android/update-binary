@@ -1,0 +1,103 @@
+#!/sbin/sh
+# Magisk CA Installer - update-binary
+# Simple, clean, and compatible with all Magisk versions
+
+# Basic setup
+umask 022
+OUTFD=$2
+ZIPFILE=$3
+
+# ui_print wrapper
+ui_print() {
+  echo "$1"
+}
+
+# Mount data if not already mounted
+mount /data 2>/dev/null
+mount /system 2>/dev/null
+
+# Stylish installation header
+ui_print "********************************"
+ui_print "   Magisk CA Installer"
+ui_print "        by Mr.Kernel"
+ui_print "********************************"
+ui_print ""
+
+# Check if Magisk is installed
+if [ ! -f /data/adb/magisk/util_functions.sh ]; then
+    ui_print "! Magisk not detected!"
+    ui_print "! Please install Magisk first"
+    exit 1
+fi
+
+# Load Magisk functions
+. /data/adb/magisk/util_functions.sh
+
+# Set up module paths
+MODPATH=$MODDIR  # This is set by util_functions.sh
+ui_print "- Module will be installed to: $MODPATH"
+
+# Create module directory
+mkdir -p $MODPATH
+
+# Extract files from ZIP
+ui_print "- Extracting module files..."
+
+# Method 1: Try unzip with full path (most reliable)
+cd /
+unzip -o "$ZIPFILE" module.prop -d $MODPATH >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+    # Method 2: Alternative extraction method
+    ui_print "  Using alternative extraction method..."
+    unzip -o "$ZIPFILE" -d $MODPATH module.prop >/dev/null 2>&1
+fi
+
+# Extract service.sh
+unzip -o "$ZIPFILE" service.sh -d $MODPATH >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+    unzip -o "$ZIPFILE" -d $MODPATH service.sh >/dev/null 2>&1
+fi
+
+# Verify extraction
+if [ ! -f $MODPATH/module.prop ]; then
+    ui_print "! Failed to extract module.prop"
+    ui_print "! ZIP file may be corrupted or have wrong structure"
+    ui_print "! Please check:"
+    ui_print "  - Files are at root of ZIP (not in a folder)"
+    ui_print "  - ZIP was created correctly"
+    exit 1
+fi
+
+if [ ! -f $MODPATH/service.sh ]; then
+    ui_print "! Failed to extract service.sh"
+    ui_print "! Module will be installed but won't work"
+else
+    ui_print "  ✓ module.prop extracted"
+    ui_print "  ✓ service.sh extracted"
+fi
+
+# Set permissions
+ui_print "- Setting permissions..."
+set_perm_recursive $MODPATH 0 0 0755 0644
+set_perm $MODPATH/service.sh 0 0 0755
+
+# Read module info for display
+MODNAME=$(grep_prop name $MODPATH/module.prop)
+MODAUTH=$(grep_prop author $MODPATH/module.prop)
+MODVER=$(grep_prop version $MODPATH/module.prop)
+
+# Success message
+ui_print ""
+ui_print "********************************"
+ui_print "   Installation Successful!"
+ui_print "********************************"
+ui_print "  Module : $MODNAME"
+ui_print "  Author : $MODAUTH"
+ui_print "  Version: $MODVER"
+ui_print "********************************"
+ui_print ""
+ui_print "  Certificates will be installed"
+ui_print "  on next boot automatically"
+ui_print "********************************"
+
+exit 0

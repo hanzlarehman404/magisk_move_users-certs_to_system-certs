@@ -1,0 +1,6 @@
+id=magisk_ca_installer
+name=Magisk CA Installer
+version=v1.0
+versionCode=1
+author=Hanzla(code name: Mr.Kernel)
+description=Mounts tmpfs over system cacerts and copies user CA certificates at boot
