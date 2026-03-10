@@ -1,103 +1,142 @@
-#!/sbin/sh
+#!/system/bin/sh
+# Magisk CA Installer - service.sh
+# Runs after boot to install user CA certificates into system trust store
 
-# Magisk Module Installer - update-binary
-# Magisk CA Installer by Mr.Kernel
-# Fixed version with proper Magisk variables
+MODPATH=${0%/*}
+LOG_FILE="/data/local/tmp/magisk_cert_install.log"
+SYSTEM_CACERTS="/system/etc/security/cacerts"
+KEYSTORE_DIR="/data/misc/keystore/user_0"
 
-# Basic setup
-OUTFD=$2
-ZIPFILE=$3
-
-# Simple ui_print wrapper
-ui_print() {
-  echo "$1"
+# Logging function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
 }
 
-# Load Magisk functions
-if [ -f /data/adb/magisk/util_functions.sh ]; then
-  # For Magisk v20.4+
-  . /data/adb/magisk/util_functions.sh
-  ui_print "✓ Magisk functions loaded"
-elif [ -f /sbin/.magisk/util_functions.sh ]; then
-  # For older Magisk
-  . /sbin/.magisk/util_functions.sh
-  ui_print "✓ Magisk functions loaded (legacy)"
-else
-  ui_print "✗ Magisk not detected!"
-  ui_print "✗ Please install Magisk first"
-  exit 1
-fi
+# Notification function
+notify() {
+    local title="$1"
+    local text="$2"
+    cmd notification post \
+        --tag "magisk_ca_installer" \
+        --title "$title" \
+        --text "$text" \
+        >/dev/null 2>&1
+}
 
-# Stylish header
-ui_print "********************************"
-ui_print "   Magisk CA Installer"
-ui_print "        by Mr.Kernel"
-ui_print "********************************"
-ui_print ""
+# Check for openssl
+check_openssl() {
+    if command -v openssl >/dev/null 2>&1; then
+        echo "openssl"
+    elif [ -f "/system/bin/openssl" ]; then
+        echo "/system/bin/openssl"
+    else
+        echo ""
+    fi
+}
 
-# IMPORTANT: Do NOT set MODPATH manually!
-# Magisk automatically sets MODPATH based on module.prop ID
-# It will be something like: /data/adb/modules/magisk_ca_installer
+# Start logging
+log "=== Magisk CA Installer started ==="
 
-ui_print "- Installing module files..."
-
-# Extract all files EXCEPT META-INF to the module directory
-# Using Magisk's built-in extraction function
-unzip -o "$ZIPFILE" -x "META-INF/*" -d "$MODPATH" 2>/dev/null
-
-# Check if extraction was successful
-if [ ! -f "$MODPATH/module.prop" ]; then
-    ui_print "✗ Failed to extract module.prop!"
-    ui_print "✗ ZIP structure may be incorrect"
-    ui_print ""
-    ui_print "Debug info:"
-    ui_print "  MODPATH: $MODPATH"
-    ui_print "  ZIPFILE: $ZIPFILE"
-    ui_print ""
-    ui_print "Please ensure:"
-    ui_print "1. module.prop is at ZIP root"
-    ui_print "2. You zipped CONTENTS, not folder"
+# Check if system cacerts exists
+if [ ! -d "$SYSTEM_CACERTS" ]; then
+    log "ERROR: $SYSTEM_CACERTS does not exist"
+    notify "Magisk CA Installer" "Installation failed - system certs dir missing"
     exit 1
 fi
 
-# Check for service.sh
-if [ ! -f "$MODPATH/service.sh" ]; then
-    ui_print "⚠ service.sh not found in ZIP"
-    ui_print "  Module will be installed but may not work"
+# Mount tmpfs over system cacerts
+log "Mounting tmpfs on $SYSTEM_CACERTS"
+mount -t tmpfs tmpfs "$SYSTEM_CACERTS" 2>> "$LOG_FILE"
+if [ $? -ne 0 ]; then
+    log "ERROR: Failed to mount tmpfs"
+    notify "Magisk CA Installer" "Installation failed - mount error"
+    exit 1
+fi
+log "tmpfs mounted successfully"
+
+# Process certificates
+total=0
+success=0
+OPENSSL=$(check_openssl)
+
+if [ -d "$KEYSTORE_DIR" ]; then
+    # Use null-delimited find to handle special characters and avoid subshell
+    while IFS= read -r -d '' cert_file; do
+        total=$((total + 1))
+        log "Processing: $cert_file"
+        
+        # Debug: check if file exists
+        if [ ! -f "$cert_file" ]; then
+            log "  - ERROR: File does not exist (even though find returned it)"
+            continue
+        fi
+        
+        hash=""
+        
+        # Try openssl first
+        if [ -n "$OPENSSL" ]; then
+            temp_pem="/data/local/tmp/temp_cert.pem"
+            # Attempt to convert DER to PEM
+            if "$OPENSSL" x509 -inform DER -in "$cert_file" -outform PEM -out "$temp_pem" 2>/dev/null; then
+                hash=$("$OPENSSL" x509 -in "$temp_pem" -subject_hash -noout 2>/dev/null)
+                rm -f "$temp_pem"
+            else
+                # Maybe it's already PEM
+                if "$OPENSSL" x509 -inform PEM -in "$cert_file" -subject_hash -noout 2>/dev/null; then
+                    hash=$("$OPENSSL" x509 -in "$cert_file" -subject_hash -noout 2>/dev/null)
+                else
+                    log "  - openssl could not parse certificate"
+                fi
+            fi
+        fi
+        
+        # Fallback: extract hash from filename
+        if [ -z "$hash" ]; then
+            base=$(basename "$cert_file")
+            # Look for Puser: or Psystem: followed by 8 hex digits
+            hash=$(echo "$base" | grep -oE '(Puser|Psystem):[0-9a-f]{8}' | head -n1 | cut -d':' -f2)
+            if [ -z "$hash" ]; then
+                # Fallback to any 8 hex digits (original method)
+                hash=$(echo "$base" | grep -oE '[0-9a-f]{8}' | head -n1)
+            fi
+        fi
+        
+        if [ -z "$hash" ]; then
+            log "  - Could not determine hash, skipping"
+            continue
+        fi
+        
+        target="$SYSTEM_CACERTS/$hash.0"
+        
+        if [ -f "$target" ]; then
+            log "  - $target already exists, skipping"
+            continue
+        fi
+        
+        # Copy with explicit error logging
+        if cp "$cert_file" "$target" 2>> "$LOG_FILE"; then
+            chmod 644 "$target"
+            chown root:root "$target"
+            log "  - Installed: $target"
+            success=$((success + 1))
+        else
+            log "  - Failed to copy certificate (cp error)"
+            # Additional debug: try ls -l on source
+            ls -l "$cert_file" >> "$LOG_FILE" 2>&1
+        fi
+    done < <(find "$KEYSTORE_DIR" -type f -name '1000_CACERT*' -print0 2>/dev/null)
+    # Note: -name '1000_CACERT*' ensures only UID 1000 certificates are processed
+fi
+
+# Summary
+log "Certificates installed: $success / $total"
+if [ $success -gt 0 ]; then
+    notify "Magisk CA Installer" "$success certificate(s) installed successfully"
+elif [ $total -eq 0 ]; then
+    notify "Magisk CA Installer" "No 1000_CACERT certificates found"
 else
-    ui_print "✓ service.sh extracted"
+    notify "Magisk CA Installer" "Certificate installation failed"
 fi
 
-# Set proper permissions using Magisk functions
-ui_print "- Setting permissions..."
-set_perm_recursive "$MODPATH" 0 0 0755 0644
-
-# Make service.sh executable if it exists
-if [ -f "$MODPATH/service.sh" ]; then
-    set_perm "$MODPATH/service.sh" 0 0 0755
-    ui_print "✓ service.sh permissions set"
-fi
-
-# Read module info
-MODNAME=$(grep_prop name "$MODPATH/module.prop" 2>/dev/null || echo "Magisk CA Installer")
-MODVER=$(grep_prop version "$MODPATH/module.prop" 2>/dev/null || echo "v1.0")
-
-# Success message
-ui_print ""
-ui_print "********************************"
-ui_print "   Installation Complete!"
-ui_print "********************************"
-ui_print "  Module : $MODNAME"
-ui_print "  Version: $MODVER"
-ui_print "  Author : Mr.Kernel"
-ui_print "********************************"
-ui_print ""
-ui_print "  Certificates will be installed"
-ui_print "  on next boot automatically"
-ui_print "********************************"
-ui_print ""
-ui_print "  Log file: /data/local/tmp/magisk_cert_install.log"
-ui_print "********************************"
-
+log "=== Magisk CA Installer finished ==="
 exit 0
-```

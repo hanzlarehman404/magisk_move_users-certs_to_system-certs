@@ -1,102 +1,194 @@
 #!/sbin/sh
 
-# Magisk Module Installer - update-binary
-# Magisk CA Installer by Mr.Kernel
-# Fixed version with proper Magisk variables
+#################
+# Initialization
+#################
 
-# Basic setup
+umask 022
+
+# echo before loading util_functions
+ui_print() { echo "$1"; }
+
+require_new_magisk() {
+  ui_print "*******************************"
+  ui_print " Please install Magisk v20.0+! "
+  ui_print "*******************************"
+  exit 1
+}
+
+#########################
+# Load util_functions.sh
+#########################
+
 OUTFD=$2
 ZIPFILE=$3
 
-# Simple ui_print wrapper
-ui_print() {
-  echo "$1"
-}
+mount /data 2>/dev/null
 
-# Load Magisk functions
-if [ -f /data/adb/magisk/util_functions.sh ]; then
-  # For Magisk v20.4+
-  . /data/adb/magisk/util_functions.sh
-  ui_print "✓ Magisk functions loaded"
-elif [ -f /sbin/.magisk/util_functions.sh ]; then
-  # For older Magisk
-  . /sbin/.magisk/util_functions.sh
-  ui_print "✓ Magisk functions loaded (legacy)"
-else
-  ui_print "✗ Magisk not detected!"
-  ui_print "✗ Please install Magisk first"
-  exit 1
+[ -f /data/adb/magisk/util_functions.sh ] || require_new_magisk
+. /data/adb/magisk/util_functions.sh
+[ $MAGISK_VER_CODE -lt 20000 ] && require_new_magisk
+
+if [ $MAGISK_VER_CODE -ge 20400 ]; then
+  # New Magisk have complete installation logic within util_functions.sh
+  install_module
+  exit 0
 fi
 
-# Stylish header
+#################
+# Legacy Support
+#################
+
+TMPDIR=/dev/tmp
+PERSISTDIR=/sbin/.magisk/mirror/persist
+
+is_legacy_script() {
+  unzip -l "$ZIPFILE" install.sh | grep -q install.sh
+  return $?
+}
+
+print_modname() {
+  local authlen len namelen pounds
+  namelen=`echo -n $MODNAME | wc -c`
+  authlen=$((`echo -n $MODAUTH | wc -c` + 3))
+  [ $namelen -gt $authlen ] && len=$namelen || len=$authlen
+  len=$((len + 2))
+  pounds=$(printf "%${len}s" | tr ' ' '*')
+  ui_print "$pounds"
+  ui_print " $MODNAME "
+  ui_print " by $MODAUTH "
+  ui_print "$pounds"
+  ui_print "*******************"
+  ui_print " Powered by Magisk "
+  ui_print "*******************"
+}
+
+# Override abort as old scripts have some issues
+abort() {
+  ui_print "$1"
+  $BOOTMODE || recovery_cleanup
+  [ -n $MODPATH ] && rm -rf $MODPATH
+  rm -rf $TMPDIR
+  exit 1
+}
+
+rm -rf $TMPDIR 2>/dev/null
+mkdir -p $TMPDIR
+
+# Preperation for flashable zips
+setup_flashable
+
+# Mount partitions
+mount_partitions
+
+# Detect version and architecture
+api_level_arch_detect
+
+# Setup busybox and binaries
+$BOOTMODE && boot_actions || recovery_actions
+
+##############
+# Preparation
+##############
+
+# Extract prop file
+unzip -o "$ZIPFILE" module.prop -d $TMPDIR >&2
+[ ! -f $TMPDIR/module.prop ] && abort "! Unable to extract zip file!"
+
+$BOOTMODE && MODDIRNAME=modules_update || MODDIRNAME=modules
+MODULEROOT=$NVBASE/$MODDIRNAME
+MODID=`grep_prop id $TMPDIR/module.prop`
+MODNAME=`grep_prop name $TMPDIR/module.prop`
+MODAUTH=`grep_prop author $TMPDIR/module.prop`
+MODPATH=$MODULEROOT/$MODID
+
+# Create mod paths
+rm -rf $MODPATH 2>/dev/null
+mkdir -p $MODPATH
+
+##########
+# Install
+##########
+
+if is_legacy_script; then
+  # This part won't be used since we don't have install.sh
+  ui_print "! Legacy installation not supported"
+  abort "! Use newer Magisk version"
+else
+  # ===========================================
+  # YOUR MODULE INSTALLATION CODE STARTS HERE
+  # ===========================================
+  
+  print_modname
+  
+  ui_print "- Extracting module files"
+  
+  # Extract ALL files except META-INF to module directory
+  unzip -o "$ZIPFILE" -x 'META-INF/*' -d $MODPATH >&2
+  
+  # Verify critical files
+  if [ ! -f $MODPATH/service.sh ]; then
+    ui_print "! Warning: service.sh not found"
+  else
+    ui_print "  ✓ service.sh extracted"
+  fi
+  
+  # Set default permissions
+  ui_print "- Setting permissions"
+  set_perm_recursive $MODPATH 0 0 0755 0644
+  
+  # Make service.sh executable
+  if [ -f $MODPATH/service.sh ]; then
+    set_perm $MODPATH/service.sh 0 0 0755
+  fi
+  
+  # ===========================================
+  # YOUR MODULE INSTALLATION CODE ENDS HERE
+  # ===========================================
+fi
+
+# Handle replace folders (not used in your module)
+for TARGET in $REPLACE; do
+  ui_print "- Replace target: $TARGET"
+  mktouch $MODPATH$TARGET/.replace
+done
+
+if $BOOTMODE; then
+  # Update info for Magisk Manager
+  mktouch $NVBASE/modules/$MODID/update
+  cp -af $MODPATH/module.prop $NVBASE/modules/$MODID/module.prop
+fi
+
+# Copy over custom sepolicy rules (not used in your module)
+if [ -f $MODPATH/sepolicy.rule -a -e $PERSISTDIR ]; then
+  ui_print "- Installing custom sepolicy patch"
+  # Remove old recovery logs (which may be filling partition) to make room
+  rm -f $PERSISTDIR/cache/recovery/*
+  PERSISTMOD=$PERSISTDIR/magisk/$MODID
+  mkdir -p $PERSISTMOD
+  cp -af $MODPATH/sepolicy.rule $PERSISTMOD/sepolicy.rule || abort "! Insufficient partition size"
+fi
+
+# Remove stuffs that don't belong to modules
+rm -rf \
+$MODPATH/system/placeholder $MODPATH/customize.sh \
+$MODPATH/README.md $MODPATH/.git* 2>/dev/null
+
+#############
+# Finalizing
+#############
+
+cd /
+$BOOTMODE || recovery_cleanup
+rm -rf $TMPDIR
+
+ui_print "- Done"
 ui_print "********************************"
 ui_print "   Magisk CA Installer"
 ui_print "        by Mr.Kernel"
 ui_print "********************************"
-ui_print ""
-
-# IMPORTANT: Do NOT set MODPATH manually!
-# Magisk automatically sets MODPATH based on module.prop ID
-# It will be something like: /data/adb/modules/magisk_ca_installer
-
-ui_print "- Installing module files..."
-
-# Extract all files EXCEPT META-INF to the module directory
-# Using Magisk's built-in extraction function
-unzip -o "$ZIPFILE" -x "META-INF/*" -d "$MODPATH" 2>/dev/null
-
-# Check if extraction was successful
-if [ ! -f "$MODPATH/module.prop" ]; then
-    ui_print "✗ Failed to extract module.prop!"
-    ui_print "✗ ZIP structure may be incorrect"
-    ui_print ""
-    ui_print "Debug info:"
-    ui_print "  MODPATH: $MODPATH"
-    ui_print "  ZIPFILE: $ZIPFILE"
-    ui_print ""
-    ui_print "Please ensure:"
-    ui_print "1. module.prop is at ZIP root"
-    ui_print "2. You zipped CONTENTS, not folder"
-    exit 1
-fi
-
-# Check for service.sh
-if [ ! -f "$MODPATH/service.sh" ]; then
-    ui_print "⚠ service.sh not found in ZIP"
-    ui_print "  Module will be installed but may not work"
-else
-    ui_print "✓ service.sh extracted"
-fi
-
-# Set proper permissions using Magisk functions
-ui_print "- Setting permissions..."
-set_perm_recursive "$MODPATH" 0 0 0755 0644
-
-# Make service.sh executable if it exists
-if [ -f "$MODPATH/service.sh" ]; then
-    set_perm "$MODPATH/service.sh" 0 0 0755
-    ui_print "✓ service.sh permissions set"
-fi
-
-# Read module info
-MODNAME=$(grep_prop name "$MODPATH/module.prop" 2>/dev/null || echo "Magisk CA Installer")
-MODVER=$(grep_prop version "$MODPATH/module.prop" 2>/dev/null || echo "v1.0")
-
-# Success message
-ui_print ""
-ui_print "********************************"
-ui_print "   Installation Complete!"
-ui_print "********************************"
-ui_print "  Module : $MODNAME"
-ui_print "  Version: $MODVER"
-ui_print "  Author : Mr.Kernel"
-ui_print "********************************"
-ui_print ""
 ui_print "  Certificates will be installed"
 ui_print "  on next boot automatically"
-ui_print "********************************"
-ui_print ""
-ui_print "  Log file: /data/local/tmp/magisk_cert_install.log"
 ui_print "********************************"
 
 exit 0
