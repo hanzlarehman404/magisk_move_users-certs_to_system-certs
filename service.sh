@@ -12,6 +12,9 @@ USER_CERT_STORE="/data/local/tmp/user_cacerts_store"   # Persistent backup
 
 # ----- CONFIGURATION -----
 REMOVE_OLD_CERTS=1   # 1 = remove from source after successful copy, 0 = keep
+success=0
+installed=""
+failed=""
 # ------------------------
 
 # Wait for system to fully boot
@@ -39,8 +42,8 @@ notify() {
     fi
     
     # Proper cmd notification syntax with channel ID
-    su -lp 2000 -c "cmd notification post -S bigtext -t '$title' --channel 'system_updates' 'magisk_ca_installer' '$text'" >/dev/null 2>&1
-    
+    su -lp 2000 -c "cmd notification post -S bigtext -t '$title' 'magisk_ca_installer' '$text'" 2>> "$LOG_FILE"
+
     # Fallback to service call
     service call notification 1 i32 0 s16 "com.android.shell" s16 "$title" s16 "$text" >/dev/null 2>&1
     
