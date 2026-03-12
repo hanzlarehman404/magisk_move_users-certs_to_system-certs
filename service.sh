@@ -23,7 +23,7 @@ while [ "$(getprop sys.boot_completed)" != "1" ]; do
 done
 
 # Extra delay for NotificationManager and UI
-sleep 10
+sleep 5
 
 # Logging function
 log() {
