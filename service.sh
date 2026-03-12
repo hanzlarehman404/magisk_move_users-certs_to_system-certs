@@ -92,6 +92,7 @@ fi
 # Copy any previously backed up user certificates from persistent store
 if [ -d "$USER_CERT_STORE" ] && [ "$(ls -A $USER_CERT_STORE 2>/dev/null)" ]; then
     cp -f $USER_CERT_STORE/* "$TEMP_CERT_DIR/" 2>> "$LOG_FILE"
+    backup_count=$(ls -1 $USER_CERT_STORE | wc -l) 
     log "  - Restored $(ls -1 $USER_CERT_STORE | wc -l) user certificates from persistent store"
 fi
 
@@ -208,14 +209,9 @@ log "Installation summary: system store now contains $final_count certificates"
 # Build notification text
 new_installed="${installed:-none}"
 if [ "$success" -gt 0 ]; then
-    cert_list=$(echo "$installed" | tr ' ' '\n' | head -3 | tr '\n' ', ' | sed 's/, $//')
-    if [ $success -gt 3 ]; then
-        cert_list="$cert_list and $(($success - 3)) more"
-    fi
-    notify "Magisk CA Installer" "✅ $success certificate(s) installed: $cert_list" "1"
+    notify "Magisk CA Installer" "✅ $success new + $backup_count from backup installed" "1"
 else
-    # No new certs, but system store is populated from backup and existing system certs
-    notify "Magisk CA Installer" "ℹ️ System certificates are ready ($final_count total)" "0"
+    notify "Magisk CA Installer" "ℹ️ $backup_count certificate(s) loaded from backup" "0"
 fi
 
 log "=== Magisk CA Installer finished ==="
