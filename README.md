@@ -11,7 +11,7 @@
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Configuration](#configuration)
-- [Directory Reference](#directory-reference)
+- [⚠️Directory Reference](#directory-reference)
 - [Notifications](#notifications)
 - [Logs](#logs)
 - [Troubleshooting](#troubleshooting)
