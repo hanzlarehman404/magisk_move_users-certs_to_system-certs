@@ -69,8 +69,8 @@ REMOVE_OLD_CERTS=1
 
 | Value | Behaviour |
 |-------|-----------|
-| `1` (default) | After a certificate is successfully copied and backed up, it is **deleted from the source directory** (`CERT_SOURCE`). This keeps the source clean and avoids re-processing on next boot. |
-| `0` | Certificates are **left in the source directory** after copying. Useful if another app or tool manages that directory and you do not want this module to touch it. |
+| `1` (default) | After a certificate is successfully copied and backed up, it is **deleted from the User Credentials**. This avoids presence of certs in both system credentials and user credentials which can confuse the apps. |
+| `0` | Certificates are **left in the user credentials directory** after copying so you have to manually clear them with "clear credentials" options in settings. |
 
 ---
 
