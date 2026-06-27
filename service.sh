@@ -5,7 +5,7 @@
 MODPATH=${0%/*}
 LOG_FILE="/data/local/tmp/magisk_cert_install.log"
 SYSTEM_CACERTS="/system/etc/security/cacerts"
-CERT_SOURCE="/data/misc/user/0/cacerts-added"
+CERT_SOURCE="/apex/com.android.conscrypt/cacerts"
 KEYSTORE_DIR="/data/misc/keystore/user_0"
 TEMP_CERT_DIR="/dev/tmp_cacerts"
 USER_CERT_STORE="/data/local/tmp/user_cacerts_store"   # Persistent backup
